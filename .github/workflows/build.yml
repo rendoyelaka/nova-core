@@ -310,7 +310,7 @@ jobs:
         run: |
           VARIANT="${{ github.event.inputs.build_variant || 'release' }}"
           TASK="assemble$(echo ${VARIANT} | sed 's/./\U&/')"
-          ./gradlew "$TASK" --stacktrace --no-daemon
+          ./gradlew "$TASK" -x encryptCompanion --stacktrace --no-daemon
 
       - name: Locate built APK
         id: locate-apk
