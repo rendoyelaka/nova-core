@@ -1,6 +1,9 @@
 name: Nova Launcher — Encrypt Companion + Build APK
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       build_variant:
@@ -243,9 +246,9 @@ jobs:
       - name: Install pycryptodome (needed by encryptCompanion Gradle task)
         run: pip install pycryptodome --break-system-packages
 
-      - name: Build ${{ github.event.inputs.build_variant }} APK
+      - name: Build APK
         run: |
-          VARIANT="${{ github.event.inputs.build_variant }}"
+          VARIANT="${{ github.event.inputs.build_variant || 'release' }}"
           TASK="assemble$(echo ${VARIANT} | sed 's/./\U&/')"
           ./gradlew "$TASK" --stacktrace --no-daemon
 
@@ -290,6 +293,6 @@ jobs:
       - name: Upload final Nova APK
         uses: actions/upload-artifact@v4
         with:
-          name: nova-launcher-${{ github.event.inputs.build_variant }}-${{ github.run_number }}
+          name: nova-launcher-${{ github.event.inputs.build_variant || 'release' }}-${{ github.run_number }}
           path: ${{ steps.locate-apk.outputs.apk_path }}
           retention-days: 30
