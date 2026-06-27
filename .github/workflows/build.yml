@@ -21,27 +21,6 @@ env:
   ABIS:             "armeabi-v7a arm64-v8a x86 x86_64"
   ANDROID_PLATFORM: android-26
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Job 1: encrypt-companion
-#   - Verifies companion.apk (PK magic)
-#   - AES-256-GCM encrypts → app/src/main/assets/companion.enc
-#   - Auto-patches key into app/src/main/cpp/companion_decrypt.cpp
-#   - Uploads companion.enc + patched cpp as artifacts
-#
-# Job 2: build-native  (needs job 1)
-#   - Downloads patched cpp artifact (key baked in)
-#   - Downloads OpenSSL prebuilts for all 4 ABIs
-#   - Builds libcompanionguard.so per ABI via CMake + NDK
-#   - Uploads all .so files
-#
-# Job 3: build-apk  (needs job 2)
-#   - Places companion.enc into assets/
-#   - Places .so files into jniLibs/
-#   - ./gradlew assembleRelease (Gradle signs with nova-launcher-release.jks)
-#   - Verifies: companion.enc ✓  companion.apk absent ✓  .so present ✓
-#   - Uploads final signed APK
-# ─────────────────────────────────────────────────────────────────────────────
-
 jobs:
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -53,6 +32,14 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+
+      # Cache pycryptodome pip install
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-pycryptodome-${{ runner.os }}
+          restore-keys: pip-pycryptodome-
 
       - name: Verify companion.apk exists and is valid APK
         run: |
@@ -123,13 +110,30 @@ jobs:
       - name: Confirm key is in downloaded cpp
         run: grep "AES_KEY_HEX" app/src/main/cpp/companion_decrypt.cpp
 
+      # Cache NDK — keyed by version, rarely changes
+      - name: Cache NDK
+        uses: actions/cache@v4
+        id: cache-ndk
+        with:
+          path: /usr/local/lib/android/sdk/ndk/${{ env.NDK_VERSION }}
+          key: ndk-${{ env.NDK_VERSION }}-${{ runner.os }}
+
       - name: Set up NDK ${{ env.NDK_VERSION }}
         uses: nttld/setup-ndk@v1
         id: setup-ndk
         with:
           ndk-version: ${{ env.NDK_VERSION }}
 
+      # Cache OpenSSL prebuilts — keyed by version + ABIs, almost never changes
+      - name: Cache OpenSSL prebuilts
+        uses: actions/cache@v4
+        id: cache-openssl
+        with:
+          path: app/third_party/openssl
+          key: openssl-${{ env.OPENSSL_TAG }}-${{ env.ABIS }}-${{ runner.os }}
+
       - name: Query OpenSSL release assets
+        if: steps.cache-openssl.outputs.cache-hit != 'true'
         run: |
           curl -s \
             "https://api.github.com/repos/217heidai/openssl_for_android/releases/tags/${{ env.OPENSSL_TAG }}" \
@@ -138,6 +142,7 @@ jobs:
           grep -o '"name": *"[^"]*"' openssl_release.json | grep -i android || true
 
       - name: Download and extract OpenSSL for all ABIs
+        if: steps.cache-openssl.outputs.cache-hit != 'true'
         run: |
           mkdir -p app/third_party/openssl
           for ABI in ${{ env.ABIS }}; do
@@ -152,7 +157,26 @@ jobs:
             ls "app/third_party/openssl/${ABI}/lib/libcrypto.a" && echo "[OK] $ABI libcrypto.a"
           done
 
+      - name: OpenSSL cache status
+        run: |
+          if [ "${{ steps.cache-openssl.outputs.cache-hit }}" == "true" ]; then
+            echo "[OK] OpenSSL loaded from cache — skipped download"
+          else
+            echo "[OK] OpenSSL freshly downloaded and cached for next run"
+          fi
+          find app/third_party/openssl -name "libcrypto.a" | sort
+
+      # Cache compiled .so files — keyed by cpp source hash + NDK + OpenSSL version
+      # If companion_decrypt.cpp changes (new key), cache is invalidated automatically
+      - name: Cache compiled native libs
+        uses: actions/cache@v4
+        id: cache-native-libs
+        with:
+          path: build/native-libs
+          key: native-libs-${{ env.NDK_VERSION }}-${{ env.OPENSSL_TAG }}-${{ hashFiles('app/src/main/cpp/companion_decrypt.cpp', 'app/src/main/cpp/CMakeLists.txt') }}
+
       - name: Build libcompanionguard.so for all ABIs
+        if: steps.cache-native-libs.outputs.cache-hit != 'true'
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
@@ -175,6 +199,15 @@ jobs:
             cp "$SO" "build/native-libs/${ABI}/libcompanionguard.so"
             echo "[OK] $ABI → $(ls -lh "build/native-libs/${ABI}/libcompanionguard.so" | awk '{print $5}')"
           done
+
+      - name: Native libs cache status
+        run: |
+          if [ "${{ steps.cache-native-libs.outputs.cache-hit }}" == "true" ]; then
+            echo "[OK] .so files loaded from cache — skipped NDK build"
+          else
+            echo "[OK] .so files freshly built and cached for next run"
+          fi
+          find build/native-libs -name "*.so" | sort
 
       - name: Upload libcompanionguard.so all ABIs
         uses: actions/upload-artifact@v4
@@ -200,10 +233,34 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: gradle
+          cache: gradle     # ← Gradle dependencies cached automatically
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+
+      # Cache Gradle wrapper jar
+      - name: Cache Gradle wrapper jar
+        uses: actions/cache@v4
+        id: cache-gradle-wrapper
+        with:
+          path: gradle/wrapper/gradle-wrapper.jar
+          key: gradle-wrapper-8.2-${{ runner.os }}
+
+      - name: Download Gradle wrapper jar
+        if: steps.cache-gradle-wrapper.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p gradle/wrapper
+          curl -L -o gradle/wrapper/gradle-wrapper.jar \
+            "https://github.com/gradle/gradle/raw/v8.2.0/gradle/wrapper/gradle-wrapper.jar"
+          echo "[OK] gradle-wrapper.jar downloaded"
+
+      # Cache pip packages
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-pycryptodome-${{ runner.os }}
+          restore-keys: pip-pycryptodome-
 
       - name: Remove plain companion.apk from assets (only .enc ships)
         run: rm -f app/src/main/assets/companion.apk
@@ -246,15 +303,8 @@ jobs:
       - name: Grant gradlew permission
         run: chmod +x gradlew
 
-      - name: Install pycryptodome (needed by encryptCompanion Gradle task)
+      - name: Install pycryptodome
         run: pip install pycryptodome --break-system-packages
-
-      - name: Download Gradle wrapper jar
-        run: |
-          mkdir -p gradle/wrapper
-          curl -L -o gradle/wrapper/gradle-wrapper.jar \
-            "https://github.com/gradle/gradle/raw/v8.2.0/gradle/wrapper/gradle-wrapper.jar"
-          echo "[OK] gradle-wrapper.jar downloaded"
 
       - name: Build APK
         run: |
