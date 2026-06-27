@@ -249,6 +249,13 @@ jobs:
       - name: Install pycryptodome (needed by encryptCompanion Gradle task)
         run: pip install pycryptodome --break-system-packages
 
+      - name: Download Gradle wrapper jar
+        run: |
+          mkdir -p gradle/wrapper
+          curl -L -o gradle/wrapper/gradle-wrapper.jar \
+            "https://github.com/gradle/gradle/raw/v8.2.0/gradle/wrapper/gradle-wrapper.jar"
+          echo "[OK] gradle-wrapper.jar downloaded"
+
       - name: Build APK
         run: |
           VARIANT="${{ github.event.inputs.build_variant || 'release' }}"
