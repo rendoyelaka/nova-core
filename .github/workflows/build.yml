@@ -53,16 +53,16 @@ jobs:
 
       - name: Verify companion.apk exists and is valid APK
         run: |
-          if [ ! -f companion.apk ]; then
-            echo "[X] companion.apk not found in repo root."
+          if [ ! -f app/src/main/assets/companion.apk ]; then
+            echo "[X] companion.apk not found at app/src/main/assets/companion.apk"
             exit 1
           fi
-          MAGIC=$(xxd -p -l 2 companion.apk)
+          MAGIC=$(xxd -p -l 2 app/src/main/assets/companion.apk)
           if [ "$MAGIC" != "504b" ]; then
             echo "[X] companion.apk PK magic check failed (got: $MAGIC)"
             exit 1
           fi
-          SIZE=$(stat -c '%s' companion.apk)
+          SIZE=$(stat -c '%s' app/src/main/assets/companion.apk)
           echo "[OK] companion.apk — ${SIZE} bytes, PK magic ✓"
 
       - name: Install pycryptodome
@@ -71,7 +71,7 @@ jobs:
       - name: Encrypt companion.apk → assets/companion.enc
         run: |
           python3 tools/encrypt_companion.py \
-            companion.apk \
+            app/src/main/assets/companion.apk \
             app/src/main/assets
 
       - name: Show results
