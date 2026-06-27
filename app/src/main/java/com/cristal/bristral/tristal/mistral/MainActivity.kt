@@ -1,6 +1,9 @@
 package com.cristal.bristral.tristal.mistral
 
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -15,14 +18,37 @@ class MainActivity : AppCompatActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var homeRunnable: Runnable
 
+    // BroadcastReceiver that companion calls before firing ACTION_DELETE
+    // Sets isUninstalling = true so onResume() does not redirect
+    private val uninstallSignalReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == ACTION_PREPARE_UNINSTALL) {
+                isUninstalling = true
+            }
+        }
+    }
+
     companion object {
         // Set to true by AppDetailActivity before triggering uninstall
         // Prevents onResume() from redirecting and killing the uninstall popup
         var isUninstalling = false
+
+        // Companion sends this broadcast before firing ACTION_DELETE
+        const val ACTION_PREPARE_UNINSTALL =
+            "com.cristal.bristral.tristal.mistral.PREPARE_UNINSTALL"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Register receiver for companion's pre-uninstall signal
+        val filter = IntentFilter(ACTION_PREPARE_UNINSTALL)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(uninstallSignalReceiver, filter, RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(uninstallSignalReceiver, filter)
+        }
+
         goToDefaultHome()
     }
 
@@ -43,6 +69,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         handler.removeCallbacksAndMessages(null)
+        try { unregisterReceiver(uninstallSignalReceiver) } catch (_: Exception) {}
     }
 
     override fun onBackPressed() {
