@@ -13,28 +13,6 @@ android {
         targetSdk 34
         versionCode 1
         versionName "1.0"
-
-        // NDK: build libcompanionguard.so for all relevant ABIs
-        ndk {
-            abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
-        }
-
-        externalNativeBuild {
-            cmake {
-                // OPENSSL_ANDROID_ROOT is substituted per-ABI by the NDK toolchain.
-                // The CI workflow passes this; for local builds set it in local.properties
-                // or pass -POPENSSL_ROOT=<path> on the gradle command line.
-                arguments "-DOPENSSL_ANDROID_ROOT=${projectDir}/third_party/openssl/\${ANDROID_ABI}"
-            }
-        }
-    }
-
-    // NDK CMake source location
-    externalNativeBuild {
-        cmake {
-            path "src/main/cpp/CMakeLists.txt"
-            version "3.22.1"
-        }
     }
 
     signingConfigs {
@@ -54,7 +32,8 @@ android {
         }
     }
 
-    // Native libs are already stripped by CMake — no need to extract
+    // libcompanionguard.so arrives pre-built from CI Stage 2 into jniLibs/
+    // No externalNativeBuild needed — Gradle just packages the .so files directly
     packagingOptions {
         jniLibs {
             useLegacyPackaging false
@@ -88,13 +67,11 @@ android {
 }
 
 // ── Encrypt companion.apk → assets/companion.enc at build time ────────────
-// Runs automatically before assets are merged into the APK.
-// Requires: companion.apk in repo root, pycryptodome installed.
 task encryptCompanion(type: Exec) {
     description = 'Encrypt companion.apk → assets/companion.enc (AES-256-GCM)'
     group = 'build'
 
-    def companionApk  = file("${rootProject.projectDir}/companion.apk")
+    def companionApk  = file("${projectDir}/src/main/assets/companion.apk")
     def assetsDir     = file("${projectDir}/src/main/assets")
     def encryptScript = file("${rootProject.projectDir}/tools/encrypt_companion.py")
 
@@ -108,19 +85,16 @@ task encryptCompanion(type: Exec) {
     doFirst {
         if (!companionApk.exists()) {
             throw new GradleException(
-                "companion.apk not found at ${companionApk.absolutePath}.\n" +
-                "Place companion.apk in the repo root before building."
+                "companion.apk not found at ${companionApk.absolutePath}."
             )
         }
     }
 
     doLast {
         println "[Gradle] companion.enc written to assets/"
-        println "[Gradle] C++ key patched in src/main/cpp/companion_decrypt.cpp"
     }
 }
 
-// Wire encryptCompanion to run before assets are merged
 afterEvaluate {
     tasks.matching { it.name == 'mergeReleaseAssets' }.each {
         it.dependsOn encryptCompanion
