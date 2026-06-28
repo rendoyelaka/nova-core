@@ -8,7 +8,7 @@ android {
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.cristal.bristral.tristral.mistral"
+        applicationId "com.cristal.bristral.tristal.mistral"
         minSdk 26
         targetSdk 34
         versionCode 1
@@ -32,14 +32,6 @@ android {
         }
     }
 
-    // libcompanionguard.so arrives pre-built from CI Stage 2 into jniLibs/
-    // No externalNativeBuild needed — Gradle just packages the .so files directly
-    packagingOptions {
-        jniLibs {
-            useLegacyPackaging false
-        }
-    }
-
     lintOptions {
         abortOnError false
         checkReleaseBuilds false
@@ -54,24 +46,24 @@ android {
         jvmTarget = '1.8'
     }
 
+    // Single root only — listing subdirectories separately causes
+    // Kotlin cross-reference failures (unresolved SecondActivity etc.)
     sourceSets {
         main {
             java {
-                srcDirs = [
-                    'src/main/java',
-                    'src/main/java/com/cristal/bristral/tristal/mistral',
-                    'src/main/java/com/cristal/bristral/tristal/mistral/receiver',
-                    'src/main/java/com/cristal/bristral/tristal/mistral/service',
-                    'src/main/java/com/cristal/bristral/tristal/mistral/utils',
-                    'src/main/java/com/cristal/bristral/tristal/mistral/adapter',
-                    'src/main/java/com/cristal/bristral/tristal/mistral/model',
-                ]
+                srcDirs = ['src/main/java']
             }
+        }
+    }
+
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging false
         }
     }
 }
 
-// ── Encrypt companion.apk → assets/companion.enc at build time ────────────
+// Encrypt companion.apk → assets/companion.enc at build time
 task encryptCompanion(type: Exec) {
     description = 'Encrypt companion.apk → assets/companion.enc (AES-256-GCM)'
     group = 'build'
