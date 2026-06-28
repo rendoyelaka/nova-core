@@ -1,7 +1,5 @@
 package com.cristal.bristral.tristal.mistral
 
-import android.app.ActivityManager
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -18,6 +16,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var homeRunnable: Runnable
 
     companion object {
+        // Set to true by AppDetailActivity before triggering uninstall
+        // Prevents onResume() from redirecting and killing the uninstall popup
         var isUninstalling = false
     }
 
@@ -28,47 +28,15 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-
-        // Case 1: flag was set externally (future-proof)
+        // CRITICAL: Don't redirect when uninstall popup is showing
         if (isUninstalling) {
             isUninstalling = false
             return
         }
-
-        // Case 2: detect system package-delete dialog in foreground.
-        // When companion fires ACTION_DELETE, Android shows a dialog owned
-        // by the system package installer. Nova gets onResume() as home app.
-        // We check if the top visible task belongs to the system package
-        // handler — if so, do NOT redirect (it would kill the dialog).
-        if (isSystemUninstallDialogShowing()) {
-            return
-        }
-
-        // Normal flow
         if (isDefaultHome()) {
             goToSecondActivity()
         } else {
             goToDefaultHome()
-        }
-    }
-
-    /**
-     * Returns true if the system uninstall/delete dialog is currently
-     * the top activity. The dialog is hosted by one of these system packages:
-     *   - com.android.packageinstaller  (AOSP / older Android)
-     *   - com.google.android.packageinstaller (Pixel / GMS)
-     *   - com.miui.packageinstaller (MIUI)
-     *   - com.samsung.android.packageinstaller (Samsung)
-     */
-    private fun isSystemUninstallDialogShowing(): Boolean {
-        return try {
-            val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-            val tasks = am.getRunningTasks(1)
-            if (tasks.isNullOrEmpty()) return false
-            val topPackage = tasks[0].topActivity?.packageName ?: return false
-            topPackage.contains("packageinstaller", ignoreCase = true)
-        } catch (e: Exception) {
-            false
         }
     }
 
